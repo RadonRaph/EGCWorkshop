@@ -1,0 +1,76 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel GrassGeneration
+
+struct InputData {
+    float3 position;
+    float3 normal;
+    float3 tangent;
+};
+
+struct IndirectArgs {
+    uint numVerticesPerInstance;
+    uint numInstances;
+    uint startVertexIndex;
+    uint startInstanceIndex;
+};
+
+struct DrawVertex {
+    float3 position;
+    float3 normal;
+    float2 uv;
+};
+
+struct DrawTriangle {
+    DrawVertex vertices[3];
+};
+
+StructuredBuffer<InputData> _InputDataBuffer;
+AppendStructuredBuffer<DrawTriangle> _DrawTrianglesBuffer;
+RWStructuredBuffer<IndirectArgs> _IndirectArgsBuffer;
+
+int _VertexCount;
+float4x4 _LocalToWorld;
+
+DrawVertex GetVertex(float3 position, float3 normal, float2 uv) {
+    DrawVertex output = (DrawVertex) 0;
+    output.position = mul(_LocalToWorld, float4(position, 1.0)).xyz;
+    output.normal = mul(_LocalToWorld, float4(normal, 0.0)).xyz;
+    output.uv = uv;
+
+    return output;
+}
+
+[numthreads(64,1,1)]
+void GrassGeneration (uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _VertexCount) {
+        return;
+    }
+
+    InputData input = _InputDataBuffer[id.x];
+    DrawVertex drawVertices[6];
+
+    drawVertices[0] = GetVertex(input.position - 0.5 * input.tangent, input.normal, float2(0, 0));
+    drawVertices[1] = GetVertex(input.position + 0.5 * input.tangent, input.normal, float2(1, 0));
+    drawVertices[2] = GetVertex(input.position - 0.5 * input.tangent + 0.5 * input.normal, input.normal, float2(0, 1));
+
+    drawVertices[3] = GetVertex(input.position + 0.5 * input.tangent, input.normal, float2(1, 0));
+    drawVertices[4] = GetVertex(input.position + 0.5 * input.tangent + 0.5 * input.normal, input.normal, float2(1, 1));
+    drawVertices[5] = GetVertex(input.position - 0.5 * input.tangent + 0.5 * input.normal, input.normal, float2(0, 1));
+
+    DrawTriangle tri = (DrawTriangle) 0;
+    tri.vertices[0] = drawVertices[0];
+    tri.vertices[1] = drawVertices[1];
+    tri.vertices[2] = drawVertices[2];
+
+    _DrawTrianglesBuffer.Append(tri);
+
+    tri.vertices[0] = drawVertices[3];
+    tri.vertices[1] = drawVertices[4];
+    tri.vertices[2] = drawVertices[5];
+
+    _DrawTrianglesBuffer.Append(tri);
+
+    InterlockedAdd(_IndirectArgsBuffer[0].numVerticesPerInstance, 6);
+
+} 
